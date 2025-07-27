@@ -463,8 +463,16 @@ class ChessAgent:
     def encode(self, board: chess.Board) -> torch.Tensor:
         return self.encoder(board)[0]
 
-    def encode_batch(self, boards: List[chess.Board]) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Encode a list of boards and return stacked latents and values."""
+    def encode_batch(self, boards: List[chess.Board] | chess.Board) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Encode boards and return stacked latents and values.
+
+        Accepts either a single :class:`chess.Board` or an iterable of boards so
+        it can be used during batched training as well as individual
+        evaluations.
+        """
+        if isinstance(boards, chess.Board):
+            lat, val = self.encoder(boards)
+            return lat.unsqueeze(0), val.unsqueeze(0)
         latents = []
         values = []
         for b in boards:
