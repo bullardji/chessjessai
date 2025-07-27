@@ -230,7 +230,9 @@ class KingRelativeNNUE(nn.Module):
                 latent = self.relu(out)
             else:
                 latent = self.relu(self.fc1(feats))
-            self._cache[board_hash] = latent
+            # Cache a detached copy so repeated boards don't keep autograd graphs
+            self._cache[board_hash] = latent.detach()
+
         value = self.value_head(latent).squeeze(-1)
         return latent, value
 
