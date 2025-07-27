@@ -23,5 +23,29 @@ training to keep the network compatible with int8 quantisation.
 Install the required Python packages:
 
 ```sh
-pip install torch chess
+pip install torch chess zstandard
 ```
+
+## Stage 0 training data
+
+Stage 0 uses the public Lichess evaluation dataset `lichess_db_eval.jsonl.zst`.
+Download it with:
+
+```sh
+wget https://database.lichess.org/lichess_db_eval.jsonl.zst
+```
+
+Then run the training script:
+
+```sh
+python training.py --data lichess_db_eval.jsonl.zst --epochs 1 --batch 32
+```
+
+The `training.py` loader streams the compressed file directly using the
+`zstandard` module, so it never needs to be fully decompressed on disk.
+
+## Colab training
+
+A ready-to-run Colab notebook `colab_training.ipynb` automates the setup and downloads.
+Open it in Google Colab and execute the cells to compile the optional C library, fetch the dataset and start training on a GPU.
+

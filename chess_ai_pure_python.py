@@ -462,6 +462,16 @@ class ChessAgent:
     def encode(self, board: chess.Board) -> torch.Tensor:
         return self.encoder(board)[0]
 
+    def encode_batch(self, boards: List[chess.Board]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Encode a list of boards and return stacked latents and values."""
+        latents = []
+        values = []
+        for b in boards:
+            lat, val = self.encoder(b)
+            latents.append(lat)
+            values.append(val)
+        return torch.stack(latents), torch.stack(values)
+
     def predict_next(self, latents: torch.Tensor, moves: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         return self.world(latents, moves, mask)
 
