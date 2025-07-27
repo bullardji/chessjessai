@@ -23,5 +23,20 @@ training to keep the network compatible with int8 quantisation.
 Install the required Python packages:
 
 ```sh
-pip install torch chess
+pip install torch chess zstandard
+```
+
+## Stage 0 training data
+
+Stage 0 uses the public Lichess evaluation dataset `lichess_db_eval.jsonl.zst`.
+Download it with:
+
+```sh
+wget https://database.lichess.org/lichess_db_eval.jsonl.zst
+```
+
+Then run the training script:
+
+```sh
+python training.py --data lichess_db_eval.jsonl.zst --epochs 1 --batch 32
 ```
