@@ -4,6 +4,7 @@ import json
 from typing import Iterator, Tuple
 from tqdm import tqdm
 
+
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 
@@ -21,6 +22,7 @@ except ImportError:
 
 LICHESS_EVAL_URL = "https://database.lichess.org/lichess_db_eval.jsonl.zst"
 LICHESS_EVAL_COUNT = 259_736_183  # total positions in the dataset
+
 
 def download_lichess_eval(path: str) -> None:
     """Download the Lichess evaluation dataset if not present."""
@@ -96,6 +98,7 @@ def train_stage0(
     loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_batch)
     params = list(agent.encoder.parameters()) + list(agent.world.parameters()) + list(agent.predictor.parameters())
     opt = torch.optim.Adam(params, lr=lr)
+
     total_batches = LICHESS_EVAL_COUNT // batch_size
     for epoch in range(epochs):
         avg_loss = None

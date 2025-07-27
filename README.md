@@ -24,6 +24,7 @@ Install the required Python packages:
 
 ```sh
 pip install torch chess zstandard tqdm
+
 ```
 
 ## Stage 0 training data
@@ -44,6 +45,7 @@ python training.py --data lichess_db_eval.jsonl.zst --epochs 1 --batch 32
 The `training.py` loader streams the compressed file directly using the
 `zstandard` module, so it never needs to be fully decompressed on disk. A
 `tqdm` progress bar reports the running loss and estimated time each epoch.
+
 
 ## Colab training
 
