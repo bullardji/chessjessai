@@ -473,7 +473,6 @@ class ChessAgent:
         if isinstance(boards, chess.Board):
             lat, val = self.encoder(boards)
             return lat.unsqueeze(0), val.unsqueeze(0)
-
         latents = []
         values = []
         for b in boards:

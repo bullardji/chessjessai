@@ -3,7 +3,6 @@ import io
 import json
 from typing import Iterator, Tuple
 from tqdm import tqdm
-
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 
