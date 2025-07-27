@@ -26,11 +26,31 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import ctypes
+import os
+
+# ───────────────────────── C acceleration (optional) ────────────
+_lib_path = os.path.join(os.path.dirname(__file__), "libfast_linear.so")
+try:
+    _fastlib = ctypes.CDLL(_lib_path)
+    _fastlib.fc1_forward.argtypes = [
+        ctypes.POINTER(ctypes.c_float),  # weights
+        ctypes.POINTER(ctypes.c_float),  # bias
+        ctypes.POINTER(ctypes.c_float),  # input
+        ctypes.POINTER(ctypes.c_float),  # output
+        ctypes.c_size_t,  # out_dim
+        ctypes.c_size_t,  # in_dim
+    ]
+    USE_FAST_FC1 = True
+except OSError:  # pragma: no cover - library missing
+    _fastlib = None
+    USE_FAST_FC1 = False
 
 # ───────────────────────── 3rd‑party deps ─────────────────────────
 try:
     import chess
     import chess.pgn
+    import chess.polyglot
 except ImportError as e:  # pragma: no cover
     raise RuntimeError(
         "python‑chess is required for this module.  Install with `pip install chess`."
@@ -80,7 +100,7 @@ class KingRelativeNNUE(nn.Module):
     """
     Incrementally updatable NNUE‑style encoder with:
       • king‑centred, side‑to‑move perspective
-      • 768 piece‑square bits
+      • 768 piece‑square bits (6 piece types × 64 squares × {stm, otm})
       • 1 side‑to‑move bit (kept for symmetry with old nets)
       • 4 castling bits
       • 8 en‑passant file bits
@@ -98,7 +118,10 @@ class KingRelativeNNUE(nn.Module):
         self.relu = nn.ReLU()
         self.value_head = nn.Linear(latent_dim, 1)
 
-        # Incremental cache {hash(board) : latent tensor}
+        # Range used when clamping weights for integer quantisation
+        self.weight_clip = 127.0 / 64.0
+
+        # Incremental cache {zobrist_hash(board) : latent tensor}
         self._cache: Dict[int, torch.Tensor] = {}
 
     # ─── Feature helpers ─────────────────────────────────────────
@@ -138,15 +161,15 @@ class KingRelativeNNUE(nn.Module):
         king_sq = board.king(board.turn)
         if king_sq is None:
             raise ValueError("Illegal board (no king).")
+        stm = board.turn
         for square in chess.SQUARES:
             piece = board.piece_at(square)
             if not piece:
                 continue
             rel_sq = (square - king_sq) & 63
-            # piece index: 0..11 (colour aware)
             type_idx = piece.piece_type - 1
-            if piece.color == chess.BLACK:
-                type_idx += 6
+            if piece.color != stm:
+                type_idx += 6  # opponent pieces
             feats[12 * rel_sq + type_idx] = 1.0
 
         offset = 768
@@ -187,12 +210,26 @@ class KingRelativeNNUE(nn.Module):
 
     # ─── Forward (latent, value) ────────────────────────────────
     def forward(self, board: chess.Board) -> Tuple[torch.Tensor, torch.Tensor]:
-        board_hash = hash(board)
+        board_hash = chess.polyglot.zobrist_hash(board)
         if board_hash in self._cache:
             latent = self._cache[board_hash]
         else:
             feats = self.encode_board(board, device=next(self.parameters()).device)
-            latent = self.relu(self.fc1(feats))
+            if USE_FAST_FC1 and feats.device.type == "cpu":
+                w = self.fc1.weight.detach().contiguous().to(torch.float32)
+                b = self.fc1.bias.detach().contiguous().to(torch.float32)
+                out = torch.empty(self.latent_dim, dtype=torch.float32)
+                _fastlib.fc1_forward(
+                    w.numpy().ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                    b.numpy().ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                    feats.numpy().ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                    out.numpy().ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+                    self.latent_dim,
+                    self.input_dim,
+                )
+                latent = self.relu(out)
+            else:
+                latent = self.relu(self.fc1(feats))
             self._cache[board_hash] = latent
         value = self.value_head(latent).squeeze(-1)
         return latent, value
@@ -200,6 +237,12 @@ class KingRelativeNNUE(nn.Module):
     # ─── Optional dynamic quantisation ───────────────────────────
     def quantize(self) -> "KingRelativeNNUE":
         return torch.quantization.quantize_dynamic(self, {nn.Linear}, dtype=torch.qint8)  # type: ignore
+
+    def clip_weights(self) -> None:
+        """Clamp fc1 parameters to the recommended int8 range."""
+        with torch.no_grad():
+            self.fc1.weight.clamp_(-self.weight_clip, self.weight_clip)
+            self.fc1.bias.clamp_(-self.weight_clip, self.weight_clip)
 
 
 # ───────────────────── Block‑causal attention (pure PyTorch) ──────────────────
